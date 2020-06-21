@@ -1,22 +1,29 @@
 AWSTemplateFormatVersion: 2010-09-09
-Transform: AWS::Serverless-2016-10-31
+Transform: 'AWS::Serverless-2016-10-31'
 Resources:
   Queue:
-    Type: AWS::SQS::Queue
+    Type: 'AWS::SQS::Queue'
     Properties:
-      QueueName: !Sub ${AWS::StackName}-Queue
+      QueueName:
+        'Fn::Sub': '${AWS::StackName}-Queue'
       RedrivePolicy:
-        deadLetterTargetArn: !GetAtt DLQ.Arn
+        deadLetterTargetArn:
+          'Fn::GetAtt':
+            - DLQ
+            - Arn
         maxReceiveCount: 5
   Database:
-    Type: AWS::RDS::DBCluster
+    Type: 'AWS::RDS::DBCluster'
     Properties:
       BackupRetentionPeriod: 1
-      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      DBSubnetGroupName:
+        Ref: DatabaseSubnetGroup
       Engine: aurora
       EngineMode: serverless
-      MasterUsername: !Sub '{{resolve:secretsmanager:${DatabaseRootUserSecret}:SecretString:username}}'
-      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DatabaseRootUserSecret}:SecretString:password}}'
+      MasterUsername:
+        'Fn::Sub': '{{resolve:secretsmanager:${DatabaseRootUserSecret}:SecretString:username}}'
+      MasterUserPassword:
+        'Fn::Sub': '{{resolve:secretsmanager:${DatabaseRootUserSecret}:SecretString:password}}'
       EnableHttpEndpoint: true
       ScalingConfiguration:
         AutoPause: false
@@ -24,21 +31,24 @@ Resources:
         MaxCapacity: 256
       StorageEncrypted: true
       VpcSecurityGroupIds:
-        - !Ref DatabaseSecurityGroup
+        - Ref: DatabaseSecurityGroup
   DatabaseSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
+    Type: 'AWS::RDS::DBSubnetGroup'
     Properties:
-      DBSubnetGroupDescription: !Sub
-        - Stack ${StackTagName} Environment ${EnvironmentTagName} Database ${ResourceName} VPC Subnets
-        - ResourceName: Database
-      SubnetIds: !Ref DefaultVPCSubnets
+      DBSubnetGroupDescription:
+        'Fn::Sub':
+          - 'Stack ${StackTagName} Environment ${EnvironmentTagName} Database ${ResourceName} VPC Subnets'
+          - ResourceName: Database
+      SubnetIds:
+        Ref: DefaultVPCSubnets
       Tags:
         - Key: Name
-          Value: !Sub
-            - Stack ${StackTagName} Environment ${EnvironmentTagName} Database ${ResourceName} VPC Subnets
-            - ResourceName: Database
+          Value:
+            'Fn::Sub':
+              - 'Stack ${StackTagName} Environment ${EnvironmentTagName} Database ${ResourceName} VPC Subnets'
+              - ResourceName: Database
   DatabaseSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
+    Type: 'AWS::EC2::SecurityGroup'
     Properties:
       GroupDescription: Database Security Group
       SecurityGroupIngress:
@@ -48,35 +58,43 @@ Resources:
         ToPort: 3306
       Tags:
         - Key: Name
-          Value: !Sub
-            - Stack ${StackTagName} Environment ${EnvironmentTagName} Database ${ResourceName} VPC Security Group
-            - ResourceName: Database
-      VpcId: !Ref DefaultVPCId
+          Value:
+            'Fn::Sub':
+              - 'Stack ${StackTagName} Environment ${EnvironmentTagName} Database ${ResourceName} VPC Security Group'
+              - ResourceName: Database
+      VpcId:
+        Ref: DefaultVPCId
   DatabaseRootUserSecret:
-    Type: AWS::SecretsManager::Secret
+    Type: 'AWS::SecretsManager::Secret'
     Properties:
-      Description: !Sub
-        - Root user login info for Stack ${StackTagName} Environment ${EnvironmentTagName} Database ${ResourceName}
-        - ResourceName: Database
+      Description:
+        'Fn::Sub':
+          - 'Root user login info for Stack ${StackTagName} Environment ${EnvironmentTagName} Database ${ResourceName}'
+          - ResourceName: Database
       GenerateSecretString:
         SecretStringTemplate: '{"username": "root"}'
         GenerateStringKey: password
         PasswordLength: 16
         ExcludeCharacters: '"@/\'
-      Name: !Sub /${EnvironmentTagName}/${StackTagName}/Database/RootUser
+      Name:
+        'Fn::Sub': '/${EnvironmentTagName}/${StackTagName}/Database/RootUser'
   DatabaseRootUserSecretAttachment:
-    Type: AWS::SecretsManager::SecretTargetAttachment
+    Type: 'AWS::SecretsManager::SecretTargetAttachment'
     Properties:
-      SecretId: !Ref DatabaseRootUserSecret
-      TargetId: !Ref Database
-      TargetType: AWS::RDS::DBCluster
+      SecretId:
+        Ref: DatabaseRootUserSecret
+      TargetId:
+        Ref: Database
+      TargetType: 'AWS::RDS::DBCluster'
   Ingest:
-    Type: AWS::Serverless::Function
+    Type: 'AWS::Serverless::Function'
     Properties:
-      FunctionName: !Sub ${AWS::StackName}-Ingest
-      Description: !Sub
-        - Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}
-        - ResourceName: Ingest
+      FunctionName:
+        'Fn::Sub': '${AWS::StackName}-Ingest'
+      Description:
+        'Fn::Sub':
+          - 'Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}'
+          - ResourceName: Ingest
       CodeUri: src/ingest
       Handler: index.handler
       Runtime: nodejs12.x
@@ -86,34 +104,103 @@ Resources:
       Policies:
         - AWSXrayWriteOnlyAccess
         - AWSSecretsManagerGetSecretValuePolicy:
-            SecretArn: !Ref DatabaseRootUserSecret
+            SecretArn:
+              Ref: DatabaseRootUserSecret
         - Statement:
             - Effect: Allow
               Action:
-                - rds-data:BatchExecuteStatement
-                - rds-data:BeginTransaction
-                - rds-data:CommitTransaction
-                - rds-data:ExecuteStatement
-                - rds-data:RollbackTransaction
+                - 'rds-data:BatchExecuteStatement'
+                - 'rds-data:BeginTransaction'
+                - 'rds-data:CommitTransaction'
+                - 'rds-data:ExecuteStatement'
+                - 'rds-data:RollbackTransaction'
               Resource:
-                - !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${Database}
+                - 'Fn::Sub': 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${Database}'
       Events:
         Queue:
           Type: SQS
           Properties:
-            Queue: !GetAtt Queue.Arn
+            Queue:
+              'Fn::GetAtt':
+                - Queue
+                - Arn
             BatchSize: 1
       Environment:
         Variables:
-          DB_ID: !Ref Database
-          DB_ADDRESS: !GetAtt Database.Endpoint.Address
-          DB_PORT: !GetAtt Database.Endpoint.Port
-          DB_ARN: !Sub arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${Database}
-          DB_ROOT_USER_SECRET_ARN: !Ref DatabaseRootUserSecret
+          DB_ID:
+            Ref: Database
+          DB_ADDRESS:
+            'Fn::GetAtt':
+              - Database
+              - Endpoint.Address
+          DB_PORT:
+            'Fn::GetAtt':
+              - Database
+              - Endpoint.Port
+          DB_ARN:
+            'Fn::Sub': 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:cluster:${Database}'
+          DB_ROOT_USER_SECRET_ARN:
+            Ref: DatabaseRootUserSecret
   DLQ:
-    Type: AWS::SQS::Queue
+    Type: 'AWS::SQS::Queue'
     Properties:
-      QueueName: !Sub ${AWS::StackName}-DLQ
+      QueueName:
+        'Fn::Sub': '${AWS::StackName}-DLQ'
+  Api:
+    Type: 'AWS::Serverless::Api'
+    Properties:
+      Name:
+        'Fn::Sub':
+          - '${ResourceName} From Stack ${StackTagName} Environment ${EnvironmentTagName}'
+          - ResourceName: Api
+      StageName:
+        Ref: EnvironmentAPIGatewayStageName
+      DefinitionBody:
+        swagger: '2.0'
+        info: {}
+        paths:
+          /message:
+            post:
+              x-amazon-apigateway-integration:
+                credentials:
+                  Ref: APIGatewayEnqueueToSQSRole.Arn
+                httpMethod: POST
+                passthroughBehavior: NEVER
+                requestParameters:
+                  integration.request.header.Content-Type: '''application/x-www-form-urlencoded'''
+                requestTemplates:
+                  application/json: Action=SendMessage&MessageBody=$input.body
+                responses:
+                  '200': {}
+                type: aws
+                uri:
+                  'Fn::Sub': 'arn:${AWS::Partition}:apigateway:${AWS::Region}:sqs:path/${AWS::AccountId}/${Queue}'
+              responses: {}
+      EndpointConfiguration: REGIONAL
+      TracingEnabled: true
+  APIGatewayEnqueueToSQSRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+      Policies:
+        - PolicyName: apig-sqs-send-msg-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action: 'sqs:SendMessage'
+                Effect: Allow
+                Resource:
+                  'Fn::GetAtt':
+                    - Queue
+                    - Arn
 Parameters:
   StackTagName:
     Type: String
@@ -122,8 +209,11 @@ Parameters:
     Type: String
     Description: Environment Name (injected by Stackery at deployment time)
   DefaultVPCId:
-    Type: AWS::EC2::VPC::Id
+    Type: 'AWS::EC2::VPC::Id'
     Description: AWS account-specific default VPC ID (injected by Stackery at deployment time)
   DefaultVPCSubnets:
-    Type: List<AWS::EC2::Subnet::Id>
+    Type: 'List<AWS::EC2::Subnet::Id>'
     Description: AWS account-specific default VPC subnets (injected by Stackery at deployment time)
+  EnvironmentAPIGatewayStageName:
+    Type: String
+    Description: Environment name used for API Gateway Stage names (injected by Stackery at deployment time)
