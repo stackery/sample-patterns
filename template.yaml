@@ -7,7 +7,7 @@ Resources:
       QueueName: !Sub ${AWS::StackName}-Queue
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt DLQ.Arn
-        maxReceiveCount: 6
+        maxReceiveCount: 5
   Database:
     Type: AWS::RDS::DBCluster
     Properties:
