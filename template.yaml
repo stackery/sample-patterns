@@ -146,61 +146,64 @@ Resources:
     Properties:
       QueueName:
         'Fn::Sub': '${AWS::StackName}-DLQ'
-  Api:
-    Type: 'AWS::Serverless::Api'
+  HttpApi:
+    Type: 'AWS::Serverless::HttpApi'
     Properties:
-      Name:
-        'Fn::Sub':
-          - '${ResourceName} From Stack ${StackTagName} Environment ${EnvironmentTagName}'
-          - ResourceName: Api
-      StageName:
-        Ref: EnvironmentAPIGatewayStageName
       DefinitionBody:
-        swagger: '2.0'
-        info: {}
+        openapi: '3.0'
+        info:
+          title:
+            'Fn::Sub': '${AWS::StackName}-HttpApi'
+          version: '1.0'
         paths:
           /message:
             post:
-              x-amazon-apigateway-integration:
-                credentials:
-                  Ref: APIGatewayEnqueueToSQSRole.Arn
-                httpMethod: POST
-                passthroughBehavior: NEVER
-                requestParameters:
-                  integration.request.header.Content-Type: '''application/x-www-form-urlencoded'''
-                requestTemplates:
-                  application/json: Action=SendMessage&MessageBody=$input.body
-                responses:
-                  '200': {}
-                type: aws
-                uri:
-                  'Fn::Sub': 'arn:${AWS::Partition}:apigateway:${AWS::Region}:sqs:path/${AWS::AccountId}/${Queue}'
               responses: {}
-      EndpointConfiguration: REGIONAL
-      TracingEnabled: true
-  APIGatewayEnqueueToSQSRole:
-    Type: 'AWS::IAM::Role'
+      FailOnWarnings: true
+  Enqueue:
+    Type: 'AWS::Serverless::Function'
     Properties:
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Action:
-              - 'sts:AssumeRole'
-            Effect: Allow
-            Principal:
-              Service:
-                - apigateway.amazonaws.com
+      FunctionName:
+        'Fn::Sub': '${AWS::StackName}-Enqueue'
+      Description:
+        'Fn::Sub':
+          - 'Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}'
+          - ResourceName: Enqueue
+      CodeUri: src/enqueue
+      Handler: index.handler
+      Runtime: nodejs12.x
+      MemorySize: 3008
+      Timeout: 30
+      Tracing: Active
       Policies:
-        - PolicyName: apig-sqs-send-msg-policy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Action: 'sqs:SendMessage'
-                Effect: Allow
-                Resource:
-                  'Fn::GetAtt':
-                    - Queue
-                    - Arn
+        - AWSXrayWriteOnlyAccess
+        - SQSSendMessagePolicy:
+            QueueName:
+              'Fn::GetAtt':
+                - Queue
+                - QueueName
+      Environment:
+        Variables:
+          QUEUE_NAME:
+            'Fn::GetAtt':
+              - Queue
+              - QueueName
+          QUEUE_ARN:
+            'Fn::GetAtt':
+              - Queue
+              - Arn
+          QUEUE_URL:
+            Ref: Queue
+      Events:
+        HttpApiPOSTmessage:
+          Type: HttpApi
+          Properties:
+            Path: /message
+            Method: POST
+            ApiId:
+              Ref: HttpApi
+            PayloadFormatVersion: '2.0'
+            TimeoutInMillis: 29000
 Parameters:
   StackTagName:
     Type: String
@@ -214,6 +217,3 @@ Parameters:
   DefaultVPCSubnets:
     Type: 'List<AWS::EC2::Subnet::Id>'
     Description: AWS account-specific default VPC subnets (injected by Stackery at deployment time)
-  EnvironmentAPIGatewayStageName:
-    Type: String
-    Description: Environment name used for API Gateway Stage names (injected by Stackery at deployment time)
