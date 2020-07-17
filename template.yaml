@@ -114,50 +114,58 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub ${AWS::StackName}-DLQ
-  HttpApi:
-    Type: AWS::Serverless::HttpApi
+  ApiToQueueRole:
+    Type: AWS::IAM::Role
     Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      Policies:
+        - PolicyName: ApiToQueuePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt Queue.Arn
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub
+        - ${ResourceName} From Stack ${StackTagName} Environment ${EnvironmentTagName}
+        - ResourceName: Api
+      StageName: !Ref EnvironmentAPIGatewayStageName
       DefinitionBody:
         openapi: '3.0'
-        info:
-          title: !Sub ${AWS::StackName}-HttpApi
-          version: '1.0'
+        info: {}
         paths:
           /message:
             post:
-              responses: {}
-      FailOnWarnings: true
-  Enqueue:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub ${AWS::StackName}-Enqueue
-      Description: !Sub
-        - Stack ${StackTagName} Environment ${EnvironmentTagName} Function ${ResourceName}
-        - ResourceName: Enqueue
-      CodeUri: src/enqueue
-      Handler: index.handler
-      Runtime: nodejs12.x
-      MemorySize: 3008
-      Timeout: 30
-      Tracing: Active
-      Policies:
-        - AWSXrayWriteOnlyAccess
-        - SQSSendMessagePolicy:
-            QueueName: !GetAtt Queue.QueueName
-      Environment:
-        Variables:
-          QUEUE_NAME: !GetAtt Queue.QueueName
-          QUEUE_ARN: !GetAtt Queue.Arn
-          QUEUE_URL: !Ref Queue
-      Events:
-        HttpApiPOSTmessage:
-          Type: HttpApi
-          Properties:
-            Path: /message
-            Method: POST
-            ApiId: !Ref HttpApi
-            PayloadFormatVersion: '2.0'
-            TimeoutInMillis: 29000
+              responses:
+                '200': {}
+              x-amazon-apigateway-integration:
+                credentials: !GetAtt ApiToQueueRole.Arn
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:sqs:path//
+                responses:
+                  default:
+                    statusCode: '200'
+                requestParameters:
+                  integration.request.header.Content-Type: '''application/x-www-form-urlencoded'''
+                requestTemplates:
+                  application/json: !Sub Version=2012-11-05&Action=SendMessage&QueueUrl=$util.urlEncode('${Queue}')&MessageBody=$util.urlEncode($input.body)
+                passthroughBehavior: never
+                httpMethod: POST
+                type: aws
+      EndpointConfiguration: REGIONAL
+      TracingEnabled: true
 Parameters:
   StackTagName:
     Type: String
@@ -171,3 +179,6 @@ Parameters:
   DefaultVPCSubnets:
     Type: List<AWS::EC2::Subnet::Id>
     Description: AWS account-specific default VPC subnets (injected by Stackery at deployment time)
+  EnvironmentAPIGatewayStageName:
+    Type: String
+    Description: Environment name used for API Gateway Stage names (injected by Stackery at deployment time)
